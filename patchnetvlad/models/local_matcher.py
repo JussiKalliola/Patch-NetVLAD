@@ -143,12 +143,17 @@ def local_matcher(predictions, eval_set, input_query_local_features_prefix,
         all_indices.append(indices)
 
     reordered_preds = []
+    inlier_index = []
+    inlier_query = []
 
     matcher = PatchMatcher(config['feature_match']['matcher'], patch_sizes, strides, all_keypoints,
                            all_indices)
 
     for q_idx, pred in enumerate(tqdm(predictions, leave=False, desc='Patch compare pred')):
         diffs = np.zeros((predictions.shape[1], len(patch_sizes)))
+        all_inlier_index_kps = []
+        all_inlier_query_kps = []
+
         image_name_query = os.path.splitext(os.path.basename(eval_set.images[eval_set.numDb + q_idx]))[0]
         qfeat = []
         for patch_size in patch_sizes:
@@ -162,10 +167,29 @@ def local_matcher(predictions, eval_set, input_query_local_features_prefix,
                 dbfilename = input_index_local_features_prefix + '_' + 'psize{}_'.format(patch_size) + image_name_index + '.npy'
                 dbfeat.append(torch.tensor(np.load(dbfilename), device=device))
 
-            diffs[k, :], _, _ = matcher.match(qfeat, dbfeat)
+            diffs[k, :], inlier_query_kps, inlier_index_kps = matcher.match(qfeat, dbfeat)
+            #print(inlier_query_kps)
+            all_inlier_query_kps.append(inlier_query_kps)
+            all_inlier_index_kps.append(inlier_index_kps)
+        #print(np.array(all_inlier_index_kps))
+
+        all_inlier_index_kps = np.array(all_inlier_index_kps)
+        all_inlier_query_kps = np.array(all_inlier_query_kps)
 
         diffs = normalise_func(diffs, len(patch_sizes), patch_weights)
         cand_sorted = np.argsort(diffs)
+
+        inlier_db_filename =  '/app/third_party/PatchNetVLAD/patchnetvlad/inlier_indices/drone_2/index/inlier_indices_' + image_name_query + '.npy'
+        np.save(inlier_db_filename, all_inlier_index_kps[cand_sorted])
+
+        inlier_query_filename =  '/app/third_party/PatchNetVLAD/patchnetvlad/inlier_indices/drone_2/query/inlier_indices_' + image_name_query + '.npy'
+        np.save(inlier_query_filename, all_inlier_query_kps[cand_sorted])
+
+        # inlier_index.append(all_inlier_query_kps[cand_sorted])
+        # inlier_query.append(all_inlier_index_kps[cand_sorted])
         reordered_preds.append(pred[cand_sorted])
+
+    # print(reordered_preds)
+    # print(np.array(reordered_preds).shape)
 
     return reordered_preds
